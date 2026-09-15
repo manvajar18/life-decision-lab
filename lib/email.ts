@@ -6,7 +6,7 @@ interface SendEmailParams {
 
 export interface EmailResult {
   success: boolean
-  provider: "resend" | "console"
+  provider: "brevo" | "resend" | "console"
   error?: string
 }
 
@@ -79,6 +79,40 @@ export async function sendPasswordResetEmail({ to, code }: SendEmailParams): Pro
   const html = getResetEmailHtml(code, to)
   const text = `Your Life Decision Lab password reset code is: ${code}\n\nThis code expires in 15 minutes. If you did not request this, please ignore this email.`
 
+  // --- 1. Brevo Provider (Sends to ANY email address without custom domain) ---
+  const brevoApiKey = process.env.BREVO_API_KEY
+  if (brevoApiKey) {
+    try {
+      const senderEmail = process.env.BREVO_SENDER_EMAIL || "myphotos2818@gmail.com"
+      const res = await fetch("https://api.brevo.com/v3/smtp/email", {
+        method: "POST",
+        headers: {
+          "api-key": brevoApiKey,
+          "Content-Type": "application/json",
+          "Accept": "application/json",
+        },
+        body: JSON.stringify({
+          sender: { name: "Life Decision Lab", email: senderEmail },
+          to: [{ email: to }],
+          subject,
+          htmlContent: html,
+          textContent: text,
+        }),
+      })
+
+      const data = await res.json()
+      if (res.ok) {
+        console.log(`[EMAIL] Successfully sent reset code to ${to} via Brevo (ID: ${data.messageId})`)
+        return { success: true, provider: "brevo" }
+      }
+      console.error("[EMAIL] Brevo API error:", data)
+      return { success: false, provider: "brevo", error: data.message || "Failed to send via Brevo" }
+    } catch (err) {
+      console.error("[EMAIL] Failed to fetch Brevo:", err)
+    }
+  }
+
+  // --- 2. Resend API Provider ---
   const resendApiKey = process.env.RESEND_API_KEY
   if (resendApiKey) {
     try {
@@ -103,7 +137,6 @@ export async function sendPasswordResetEmail({ to, code }: SendEmailParams): Pro
         console.log(`[EMAIL] Successfully sent reset code to ${to} via Resend (ID: ${data.id})`)
         return { success: true, provider: "resend" }
       }
-
       console.error("[EMAIL] Resend API error:", data)
       return { success: false, provider: "resend", error: data.message || "Failed to send via Resend" }
     } catch (err) {
