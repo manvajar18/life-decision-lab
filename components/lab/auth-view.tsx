@@ -93,7 +93,13 @@ export function AuthView({
   const [newPassword, setNewPassword] = useState("")
   const [confirmNewPassword, setConfirmNewPassword] = useState("")
   const [showNewPassword, setShowNewPassword] = useState(false)
-  const [receivedCode, setReceivedCode] = useState<string | null>(null)
+
+  function maskEmail(val: string): string {
+    if (!val || !val.includes("@")) return val
+    const [userPart, domain] = val.split("@")
+    if (userPart.length <= 3) return `${userPart[0]}***@${domain}`
+    return `${userPart.slice(0, 2)}***${userPart.slice(-2)}@${domain}`
+  }
 
   function fillDemo() {
     setMode("login")
@@ -127,10 +133,9 @@ export function AuthView({
         return
       }
 
-      setReceivedCode(data.code)
-      setResetCode(data.code)
+      setResetCode("")
       setForgotStep(2)
-      setSuccess("6-digit verification code generated! Enter your new password below.")
+      setSuccess(`A 6-digit security code was sent to your email (${maskEmail(email)}). Please check your inbox.`)
     } catch {
       setError("Network error. Please try again.")
     } finally {
@@ -182,7 +187,6 @@ export function AuthView({
       setResetCode("")
       setNewPassword("")
       setConfirmNewPassword("")
-      setReceivedCode(null)
     } catch {
       setError("Network error. Please try again.")
     } finally {
@@ -651,32 +655,20 @@ export function AuthView({
             {/* FORGOT PASSWORD: STEP 2 */}
             {mode === "forgot" && forgotStep === 2 && (
               <form onSubmit={handleResetPassword} className="flex flex-col gap-4">
-                {receivedCode && (
-                  <div className="rounded-lg border border-chart-2/40 bg-chart-2/10 p-3.5 text-xs text-foreground">
-                    <div className="flex items-center justify-between">
-                      <span className="font-semibold text-chart-2 flex items-center gap-1.5">
-                        <KeyRound className="size-4" /> Security Code:
-                      </span>
-                      <div className="flex items-center gap-2">
-                        <span className="rounded bg-chart-2/20 px-2 py-0.5 font-mono text-xs font-bold tracking-wider text-chart-2">
-                          {receivedCode}
-                        </span>
-                        <Button
-                          type="button"
-                          variant="outline"
-                          size="sm"
-                          className="h-6 px-2 text-[10px] border-chart-2/40 text-chart-2 hover:bg-chart-2/20"
-                          onClick={() => setResetCode(receivedCode)}
-                        >
-                          Auto-fill
-                        </Button>
-                      </div>
-                    </div>
-                    <p className="mt-2 text-[11px] text-muted-foreground">
-                      Valid for 15 minutes. Stored in your database record.
-                    </p>
+                <div className="rounded-lg border border-primary/30 bg-primary/5 p-4 text-xs text-foreground">
+                  <div className="flex items-center gap-2 font-semibold text-primary">
+                    <Mail className="size-4" />
+                    <span>Check Your Email Inbox</span>
                   </div>
-                )}
+                  <p className="mt-2 text-xs leading-relaxed text-muted-foreground">
+                    We sent a private 6-digit security code to{" "}
+                    <strong className="font-semibold text-foreground">{maskEmail(email)}</strong>.
+                    Please check your inbox (or spam/junk folder), and enter the code below to reset your password.
+                  </p>
+                  <p className="mt-2 text-[11px] text-muted-foreground flex items-center gap-1.5">
+                    <Clock className="size-3 text-muted-foreground" /> Code is valid for 15 minutes.
+                  </p>
+                </div>
 
                 <div className="space-y-1.5">
                   <div className="flex items-center justify-between">
