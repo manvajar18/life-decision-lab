@@ -1,0 +1,73 @@
+{
+  "users": [
+    {
+      "id": "usr_demo_life_lab",
+      "name": "Alex Morgan",
+      "email": "demo@lifedecisionlab.com",
+      "passwordHash": "4122e1516b78121056df6ffb39d0c36c7a518bd5f4211337f868e813982fe30d1b89631fc811ba798a56581aa274a0d32dfff61f27d386d4de11c5fb880af9bf",
+      "salt": "f46c13c5fe3f8b9ac49f8a1d0578aac7",
+      "createdAt": "2026-09-15T06:53:36.287Z",
+      "updatedAt": "2026-09-15T09:47:08.831Z"
+    },
+    {
+      "id": "usr_f3198646-332f-4074-b01e-1fe224dd978b",
+      "name": "man vajar",
+      "email": "rathodjaggi54@gmail.com",
+      "passwordHash": "3cc87b72ba7c2d2c458f46f23256a0527d78200cfff6dcd190bdb44238cc0511919271f301e9ea7974a6f06287a91a6aa7ef86ce6681070b692015f621050582",
+      "salt": "8dc6afe10de8a5e08dc31cc686159538",
+      "createdAt": "2026-09-15T07:27:25.210Z",
+      "updatedAt": "2026-09-15T07:27:25.210Z"
+    }
+  ],
+  "sessions": [],
+  "userData": {
+    "usr_demo_life_lab": {
+      "userId": "usr_demo_life_lab",
+      "answers": {
+        "0": 0,
+        "1": 1,
+        "2": 0,
+        "3": 0,
+        "4": 0,
+        "5": 0,
+        "6": 0,
+        "7": 0
+      },
+      "step": 7,
+      "complete": true,
+      "selectedPath": "studies",
+      "assumptions": {
+        "salary": 7.5,
+        "growth": 12,
+        "tuition": 9,
+        "investment": 5,
+        "startupGrowth": 50
+      },
+      "checked": {
+        "studies-0-0": true,
+        "studies-0-1": true
+      },
+      "updatedAt": "2026-09-15T06:53:36.289Z"
+    },
+    "usr_f3198646-332f-4074-b01e-1fe224dd978b": {
+      "userId": "usr_f3198646-332f-4074-b01e-1fe224dd978b",
+      "answers": {},
+      "step": 0,
+      "complete": false,
+      "selectedPath": "studies",
+      "assumptions": {
+        "salary": 6,
+        "growth": 10,
+        "tuition": 8,
+        "investment": 5,
+        "startupGrowth": 50
+      },
+      "checked": {},
+      "updatedAt": "2026-09-15T09:51:59.811Z"
+    }
+  },
+  "settings": {
+    "adminPasskey": "man1811",
+    "updatedAt": "2026-09-15T07:25:19.915Z"
+  }
+}
