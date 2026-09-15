@@ -75,7 +75,7 @@ export function AuthView({
   lastSavedAt,
   syncStatus = "idle",
 }: AuthViewProps) {
-  const [mode, setMode] = useState<"login" | "signup">(initialMode)
+  const [mode, setMode] = useState<"login" | "signup" | "forgot">(initialMode)
   const [email, setEmail] = useState("")
   const [password, setPassword] = useState("")
   const [name, setName] = useState("")
@@ -87,11 +87,107 @@ export function AuthView({
   const [syncingManual, setSyncingManual] = useState(false)
   const [reloadingManual, setReloadingManual] = useState(false)
 
+  // Forgot password state
+  const [forgotStep, setForgotStep] = useState<1 | 2>(1)
+  const [resetCode, setResetCode] = useState("")
+  const [newPassword, setNewPassword] = useState("")
+  const [confirmNewPassword, setConfirmNewPassword] = useState("")
+  const [showNewPassword, setShowNewPassword] = useState(false)
+  const [receivedCode, setReceivedCode] = useState<string | null>(null)
+
   function fillDemo() {
     setMode("login")
     setEmail("demo@lifedecisionlab.com")
     setPassword("demo123456")
     setError(null)
+  }
+
+  async function handleSendResetCode(e: React.FormEvent) {
+    e.preventDefault()
+    setError(null)
+    setSuccess(null)
+
+    if (!email.trim()) {
+      setError("Please enter your account email address.")
+      return
+    }
+
+    setLoading(true)
+    try {
+      const res = await fetch("/api/auth/forgot-password", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email: email.trim() }),
+      })
+      const data = await res.json()
+
+      if (!res.ok) {
+        setError(data.error || "Could not find an account with this email.")
+        setLoading(false)
+        return
+      }
+
+      setReceivedCode(data.code)
+      setResetCode(data.code)
+      setForgotStep(2)
+      setSuccess("6-digit verification code generated! Enter your new password below.")
+    } catch {
+      setError("Network error. Please try again.")
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  async function handleResetPassword(e: React.FormEvent) {
+    e.preventDefault()
+    setError(null)
+    setSuccess(null)
+
+    if (!resetCode.trim()) {
+      setError("Please enter the 6-digit verification code.")
+      return
+    }
+    if (newPassword.length < 6) {
+      setError("New password must be at least 6 characters.")
+      return
+    }
+    if (newPassword !== confirmNewPassword) {
+      setError("Passwords do not match.")
+      return
+    }
+
+    setLoading(true)
+    try {
+      const res = await fetch("/api/auth/reset-password", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          email: email.trim(),
+          code: resetCode.trim(),
+          newPassword,
+        }),
+      })
+      const data = await res.json()
+
+      if (!res.ok) {
+        setError(data.error || "Failed to reset password.")
+        setLoading(false)
+        return
+      }
+
+      setSuccess("Password updated successfully! Please sign in with your new password.")
+      setPassword(newPassword)
+      setMode("login")
+      setForgotStep(1)
+      setResetCode("")
+      setNewPassword("")
+      setConfirmNewPassword("")
+      setReceivedCode(null)
+    } catch {
+      setError("Network error. Please try again.")
+    } finally {
+      setLoading(false)
+    }
   }
 
   async function handleManualSync() {
@@ -412,11 +508,19 @@ export function AuthView({
         <p className="eyebrow text-primary">
           <Sparkles className="size-4" /> LIFETIME PERSISTENT DATA STORAGE
         </p>
-        <h1>{mode === "login" ? "Sign in for lifetime access." : "Create your permanent account."}</h1>
+        <h1>
+          {mode === "login"
+            ? "Sign in for lifetime access."
+            : mode === "signup"
+            ? "Create your permanent account."
+            : "Reset your account password."}
+        </h1>
         <p>
           {mode === "login"
             ? "Sign in to access your saved assessments, customized growth models, and personalized roadmap checklist from any device."
-            : "Registering instantly attaches your answers, chosen path, and checklist to your lifetime account in our secure database."}
+            : mode === "signup"
+            ? "Registering instantly attaches your answers, chosen path, and checklist to your lifetime account in our secure database."
+            : "Enter your registered email address to receive a secure 6-digit verification code and reset your password."}
         </p>
       </div>
 
@@ -430,6 +534,7 @@ export function AuthView({
                   onClick={() => {
                     setMode("login")
                     setError(null)
+                    setSuccess(null)
                   }}
                   className={`flex items-center gap-2 rounded-md px-3.5 py-1.5 text-xs font-medium transition-all ${
                     mode === "login"
@@ -444,6 +549,7 @@ export function AuthView({
                   onClick={() => {
                     setMode("signup")
                     setError(null)
+                    setSuccess(null)
                   }}
                   className={`flex items-center gap-2 rounded-md px-3.5 py-1.5 text-xs font-medium transition-all ${
                     mode === "signup"
@@ -453,165 +559,372 @@ export function AuthView({
                 >
                   <UserPlus className="size-3.5" /> Create Account
                 </button>
+                {mode === "forgot" && (
+                  <button
+                    type="button"
+                    className="flex items-center gap-2 rounded-md bg-primary px-3.5 py-1.5 text-xs font-medium text-primary-foreground shadow-xs"
+                  >
+                    <KeyRound className="size-3.5" /> Reset Password
+                  </button>
+                )}
               </div>
               <Badge variant="outline" className="text-[10px] text-chart-2 border-chart-2/30">
                 Lifetime Storage
               </Badge>
             </div>
             <CardTitle className="mt-2 text-lg">
-              {mode === "login" ? "Sign in to your account" : "Create your free account"}
+              {mode === "login"
+                ? "Sign in to your account"
+                : mode === "signup"
+                ? "Create your free account"
+                : forgotStep === 1
+                ? "Request Password Reset Code"
+                : "Set New Password"}
             </CardTitle>
             <CardDescription className="text-xs">
               {mode === "login"
                 ? "Enter your email and password below."
-                : "Enter your details to create your secure profile. Any guest work is preserved!"}
+                : mode === "signup"
+                ? "Enter your details to create your secure profile. Any guest work is preserved!"
+                : forgotStep === 1
+                ? "Enter the email you registered with to receive your 6-digit code."
+                : "Enter the 6-digit code and your new password to restore access."}
             </CardDescription>
           </CardHeader>
 
           <CardContent>
-            <form onSubmit={handleSubmit} className="flex flex-col gap-4">
-              {error && (
-                <div className="flex items-start gap-2.5 rounded-lg border border-destructive/40 bg-destructive/10 p-3 text-xs text-destructive">
-                  <AlertCircle className="size-4 shrink-0 mt-0.5" />
-                  <span>{error}</span>
-                </div>
-              )}
+            {error && (
+              <div className="mb-4 flex items-start gap-2.5 rounded-lg border border-destructive/40 bg-destructive/10 p-3 text-xs text-destructive">
+                <AlertCircle className="size-4 shrink-0 mt-0.5" />
+                <span>{error}</span>
+              </div>
+            )}
 
-              {success && (
-                <div className="flex items-start gap-2.5 rounded-lg border border-chart-2/40 bg-chart-2/10 p-3 text-xs text-chart-2">
-                  <CheckCircle2 className="size-4 shrink-0 mt-0.5" />
-                  <span>{success}</span>
-                </div>
-              )}
+            {success && (
+              <div className="mb-4 flex items-start gap-2.5 rounded-lg border border-chart-2/40 bg-chart-2/10 p-3 text-xs text-chart-2">
+                <CheckCircle2 className="size-4 shrink-0 mt-0.5" />
+                <span>{success}</span>
+              </div>
+            )}
 
-              {mode === "signup" && (
+            {/* FORGOT PASSWORD: STEP 1 */}
+            {mode === "forgot" && forgotStep === 1 && (
+              <form onSubmit={handleSendResetCode} className="flex flex-col gap-4">
                 <div className="space-y-1.5">
-                  <Label htmlFor="auth-name" className="text-xs">
-                    Full Name
+                  <Label htmlFor="auth-forgot-email" className="text-xs">
+                    Registered Email Address
                   </Label>
                   <div className="relative">
-                    <User className="absolute left-3 top-2.5 size-4 text-muted-foreground" />
+                    <Mail className="absolute left-3 top-2.5 size-4 text-muted-foreground" />
                     <Input
-                      id="auth-name"
-                      type="text"
-                      placeholder="e.g. Alex Morgan"
-                      value={name}
-                      onChange={(e) => setName(e.target.value)}
+                      id="auth-forgot-email"
+                      type="email"
+                      placeholder="you@example.com"
+                      value={email}
+                      onChange={(e) => setEmail(e.target.value)}
                       className="pl-9 text-xs"
                       required
                       disabled={loading}
                     />
                   </div>
+                  <p className="text-[11px] text-muted-foreground">
+                    A 6-digit security code will be generated and saved to your account in the database.
+                  </p>
                 </div>
-              )}
 
-              <div className="space-y-1.5">
-                <Label htmlFor="auth-email" className="text-xs">
-                  Email Address
-                </Label>
-                <div className="relative">
-                  <Mail className="absolute left-3 top-2.5 size-4 text-muted-foreground" />
-                  <Input
-                    id="auth-email"
-                    type="email"
-                    placeholder="you@example.com"
-                    value={email}
-                    onChange={(e) => setEmail(e.target.value)}
-                    className="pl-9 text-xs"
-                    required
-                    disabled={loading}
-                  />
-                </div>
-              </div>
-
-              <div className="space-y-1.5">
-                <div className="flex items-center justify-between">
-                  <Label htmlFor="auth-password" className="text-xs">
-                    Password
-                  </Label>
-                  {mode === "signup" && (
-                    <span className="text-[10px] text-muted-foreground">Min. 6 characters</span>
+                <Button type="submit" size="lg" className="mt-2 w-full gap-2" disabled={loading}>
+                  {loading ? (
+                    <span className="flex items-center gap-2">
+                      <span className="size-3 animate-spin rounded-full border-2 border-primary-foreground border-t-transparent" />
+                      Generating Code...
+                    </span>
+                  ) : (
+                    <>
+                      Send 6-Digit Reset Code
+                      <ArrowRight className="size-4" />
+                    </>
                   )}
-                </div>
-                <div className="relative">
-                  <Lock className="absolute left-3 top-2.5 size-4 text-muted-foreground" />
-                  <Input
-                    id="auth-password"
-                    type={showPassword ? "text" : "password"}
-                    placeholder="••••••••"
-                    value={password}
-                    onChange={(e) => setPassword(e.target.value)}
-                    className="pl-9 pr-9 text-xs"
-                    required
-                    disabled={loading}
-                  />
-                  <button
-                    type="button"
-                    onClick={() => setShowPassword(!showPassword)}
-                    className="absolute right-3 top-2.5 text-muted-foreground hover:text-foreground"
-                    aria-label={showPassword ? "Hide password" : "Show password"}
-                  >
-                    {showPassword ? <EyeOff className="size-4" /> : <Eye className="size-4" />}
-                  </button>
-                </div>
-              </div>
+                </Button>
+              </form>
+            )}
 
-              {mode === "signup" && (
+            {/* FORGOT PASSWORD: STEP 2 */}
+            {mode === "forgot" && forgotStep === 2 && (
+              <form onSubmit={handleResetPassword} className="flex flex-col gap-4">
+                {receivedCode && (
+                  <div className="rounded-lg border border-chart-2/40 bg-chart-2/10 p-3.5 text-xs text-foreground">
+                    <div className="flex items-center justify-between">
+                      <span className="font-semibold text-chart-2 flex items-center gap-1.5">
+                        <KeyRound className="size-4" /> Security Code:
+                      </span>
+                      <div className="flex items-center gap-2">
+                        <span className="rounded bg-chart-2/20 px-2 py-0.5 font-mono text-xs font-bold tracking-wider text-chart-2">
+                          {receivedCode}
+                        </span>
+                        <Button
+                          type="button"
+                          variant="outline"
+                          size="sm"
+                          className="h-6 px-2 text-[10px] border-chart-2/40 text-chart-2 hover:bg-chart-2/20"
+                          onClick={() => setResetCode(receivedCode)}
+                        >
+                          Auto-fill
+                        </Button>
+                      </div>
+                    </div>
+                    <p className="mt-2 text-[11px] text-muted-foreground">
+                      Valid for 15 minutes. Stored in your database record.
+                    </p>
+                  </div>
+                )}
+
                 <div className="space-y-1.5">
-                  <Label htmlFor="auth-confirm-password" className="text-xs">
-                    Confirm Password
-                  </Label>
+                  <div className="flex items-center justify-between">
+                    <Label htmlFor="auth-reset-code" className="text-xs">
+                      6-Digit Security Code
+                    </Label>
+                    <button
+                      type="button"
+                      onClick={() => setForgotStep(1)}
+                      className="text-[11px] text-primary hover:underline"
+                    >
+                      Resend / Change Email
+                    </button>
+                  </div>
                   <div className="relative">
                     <KeyRound className="absolute left-3 top-2.5 size-4 text-muted-foreground" />
                     <Input
-                      id="auth-confirm-password"
-                      type={showPassword ? "text" : "password"}
+                      id="auth-reset-code"
+                      type="text"
+                      placeholder="e.g. 123456"
+                      maxLength={6}
+                      value={resetCode}
+                      onChange={(e) => setResetCode(e.target.value)}
+                      className="pl-9 font-mono tracking-widest text-xs"
+                      required
+                      disabled={loading}
+                    />
+                  </div>
+                </div>
+
+                <div className="space-y-1.5">
+                  <div className="flex items-center justify-between">
+                    <Label htmlFor="auth-new-password" className="text-xs">
+                      New Password
+                    </Label>
+                    <span className="text-[10px] text-muted-foreground">Min. 6 characters</span>
+                  </div>
+                  <div className="relative">
+                    <Lock className="absolute left-3 top-2.5 size-4 text-muted-foreground" />
+                    <Input
+                      id="auth-new-password"
+                      type={showNewPassword ? "text" : "password"}
                       placeholder="••••••••"
-                      value={confirmPassword}
-                      onChange={(e) => setConfirmPassword(e.target.value)}
+                      value={newPassword}
+                      onChange={(e) => setNewPassword(e.target.value)}
+                      className="pl-9 pr-9 text-xs"
+                      required
+                      disabled={loading}
+                    />
+                    <button
+                      type="button"
+                      onClick={() => setShowNewPassword(!showNewPassword)}
+                      className="absolute right-3 top-2.5 text-muted-foreground hover:text-foreground"
+                      aria-label={showNewPassword ? "Hide password" : "Show password"}
+                    >
+                      {showNewPassword ? <EyeOff className="size-4" /> : <Eye className="size-4" />}
+                    </button>
+                  </div>
+                </div>
+
+                <div className="space-y-1.5">
+                  <Label htmlFor="auth-confirm-new-password" className="text-xs">
+                    Confirm New Password
+                  </Label>
+                  <div className="relative">
+                    <Lock className="absolute left-3 top-2.5 size-4 text-muted-foreground" />
+                    <Input
+                      id="auth-confirm-new-password"
+                      type={showNewPassword ? "text" : "password"}
+                      placeholder="••••••••"
+                      value={confirmNewPassword}
+                      onChange={(e) => setConfirmNewPassword(e.target.value)}
                       className="pl-9 text-xs"
                       required
                       disabled={loading}
                     />
                   </div>
                 </div>
-              )}
 
-              <Button type="submit" size="lg" className="mt-2 w-full gap-2" disabled={loading}>
-                {loading ? (
-                  <span className="flex items-center gap-2">
-                    <span className="size-3 animate-spin rounded-full border-2 border-primary-foreground border-t-transparent" />
-                    {mode === "signup" ? "Creating account..." : "Signing in..."}
-                  </span>
-                ) : (
-                  <>
-                    {mode === "signup" ? "Create Free Account" : "Sign In to Workspace"}
-                    <ArrowRight className="size-4" />
-                  </>
+                <Button type="submit" size="lg" className="mt-2 w-full gap-2" disabled={loading}>
+                  {loading ? (
+                    <span className="flex items-center gap-2">
+                      <span className="size-3 animate-spin rounded-full border-2 border-primary-foreground border-t-transparent" />
+                      Updating Password...
+                    </span>
+                  ) : (
+                    <>
+                      Save New Password & Sign In
+                      <ArrowRight className="size-4" />
+                    </>
+                  )}
+                </Button>
+              </form>
+            )}
+
+            {/* LOGIN & SIGNUP FORMS */}
+            {mode !== "forgot" && (
+              <form onSubmit={handleSubmit} className="flex flex-col gap-4">
+                {mode === "signup" && (
+                  <div className="space-y-1.5">
+                    <Label htmlFor="auth-name" className="text-xs">
+                      Full Name
+                    </Label>
+                    <div className="relative">
+                      <User className="absolute left-3 top-2.5 size-4 text-muted-foreground" />
+                      <Input
+                        id="auth-name"
+                        type="text"
+                        placeholder="e.g. Alex Morgan"
+                        value={name}
+                        onChange={(e) => setName(e.target.value)}
+                        className="pl-9 text-xs"
+                        required
+                        disabled={loading}
+                      />
+                    </div>
+                  </div>
                 )}
-              </Button>
-            </form>
 
-            <div className="mt-5 flex items-center gap-3">
-              <Separator className="flex-1" />
-              <span className="text-[10px] uppercase tracking-wider text-muted-foreground">Or Quick Demo</span>
-              <Separator className="flex-1" />
-            </div>
+                <div className="space-y-1.5">
+                  <Label htmlFor="auth-email" className="text-xs">
+                    Email Address
+                  </Label>
+                  <div className="relative">
+                    <Mail className="absolute left-3 top-2.5 size-4 text-muted-foreground" />
+                    <Input
+                      id="auth-email"
+                      type="email"
+                      placeholder="you@example.com"
+                      value={email}
+                      onChange={(e) => setEmail(e.target.value)}
+                      className="pl-9 text-xs"
+                      required
+                      disabled={loading}
+                    />
+                  </div>
+                </div>
 
-            <Button
-              type="button"
-              variant="outline"
-              size="sm"
-              onClick={fillDemo}
-              className="mt-3 w-full border-dashed text-xs text-primary hover:bg-primary/5"
-            >
-              Fill Demo Credentials (1-Click)
-            </Button>
+                <div className="space-y-1.5">
+                  <div className="flex items-center justify-between">
+                    <Label htmlFor="auth-password" className="text-xs">
+                      Password
+                    </Label>
+                    {mode === "login" ? (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setMode("forgot")
+                          setForgotStep(1)
+                          setError(null)
+                          setSuccess(null)
+                        }}
+                        className="text-[11px] font-medium text-primary hover:underline"
+                      >
+                        Forgot password?
+                      </button>
+                    ) : (
+                      <span className="text-[10px] text-muted-foreground">Min. 6 characters</span>
+                    )}
+                  </div>
+                  <div className="relative">
+                    <Lock className="absolute left-3 top-2.5 size-4 text-muted-foreground" />
+                    <Input
+                      id="auth-password"
+                      type={showPassword ? "text" : "password"}
+                      placeholder="••••••••"
+                      value={password}
+                      onChange={(e) => setPassword(e.target.value)}
+                      className="pl-9 pr-9 text-xs"
+                      required
+                      disabled={loading}
+                    />
+                    <button
+                      type="button"
+                      onClick={() => setShowPassword(!showPassword)}
+                      className="absolute right-3 top-2.5 text-muted-foreground hover:text-foreground"
+                      aria-label={showPassword ? "Hide password" : "Show password"}
+                    >
+                      {showPassword ? <EyeOff className="size-4" /> : <Eye className="size-4" />}
+                    </button>
+                  </div>
+                </div>
+
+                {mode === "signup" && (
+                  <div className="space-y-1.5">
+                    <Label htmlFor="auth-confirm-password" className="text-xs">
+                      Confirm Password
+                    </Label>
+                    <div className="relative">
+                      <KeyRound className="absolute left-3 top-2.5 size-4 text-muted-foreground" />
+                      <Input
+                        id="auth-confirm-password"
+                        type={showPassword ? "text" : "password"}
+                        placeholder="••••••••"
+                        value={confirmPassword}
+                        onChange={(e) => setConfirmPassword(e.target.value)}
+                        className="pl-9 text-xs"
+                        required
+                        disabled={loading}
+                      />
+                    </div>
+                  </div>
+                )}
+
+                <Button type="submit" size="lg" className="mt-2 w-full gap-2" disabled={loading}>
+                  {loading ? (
+                    <span className="flex items-center gap-2">
+                      <span className="size-3 animate-spin rounded-full border-2 border-primary-foreground border-t-transparent" />
+                      {mode === "signup" ? "Creating account..." : "Signing in..."}
+                    </span>
+                  ) : (
+                    <>
+                      {mode === "signup" ? "Create Free Account" : "Sign In to Workspace"}
+                      <ArrowRight className="size-4" />
+                    </>
+                  )}
+                </Button>
+              </form>
+            )}
+
+            {mode !== "forgot" && (
+              <>
+                <div className="mt-5 flex items-center gap-3">
+                  <Separator className="flex-1" />
+                  <span className="text-[10px] uppercase tracking-wider text-muted-foreground">Or Quick Demo</span>
+                  <Separator className="flex-1" />
+                </div>
+
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  onClick={fillDemo}
+                  className="mt-3 w-full border-dashed text-xs text-primary hover:bg-primary/5"
+                >
+                  Fill Demo Credentials (1-Click)
+                </Button>
+              </>
+            )}
           </CardContent>
 
           <CardFooter className="flex items-center justify-between border-t border-border pt-4">
             <span className="text-[11px] text-muted-foreground">
-              {mode === "login" ? "Don't have an account yet?" : "Already have an account?"}
+              {mode === "login"
+                ? "Don't have an account yet?"
+                : mode === "signup"
+                ? "Already have an account?"
+                : "Remembered your password?"}
             </span>
             <Button
               variant="ghost"
@@ -619,10 +932,11 @@ export function AuthView({
               onClick={() => {
                 setMode(mode === "login" ? "signup" : "login")
                 setError(null)
+                setSuccess(null)
               }}
               className="text-xs text-primary"
             >
-              {mode === "login" ? "Create one here" : "Sign in here"}
+              {mode === "login" ? "Create one here" : mode === "signup" ? "Sign in here" : "Back to Sign In"}
             </Button>
           </CardFooter>
         </Card>
