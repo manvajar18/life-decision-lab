@@ -1,0 +1,88 @@
+{
+  "users": [
+    {
+      "id": "usr_demo_life_lab",
+      "name": "Alex Morgan",
+      "email": "demo@lifedecisionlab.com",
+      "passwordHash": "2a3eb56df19dd17355c0017f32b72e1e91334bea2c0f317c07a5c9e365f1589a2b5d32e9e50f6cf232f301e470b81786999274ada3cc0e33cab5f7408f3db3ea",
+      "salt": "25c28bf59690d0f3db5bceef0005a59b",
+      "createdAt": "2026-09-15T06:53:36.287Z",
+      "updatedAt": "2026-09-15T06:53:36.289Z"
+    },
+    {
+      "id": "usr_f3198646-332f-4074-b01e-1fe224dd978b",
+      "name": "man vajar",
+      "email": "rathodjaggi54@gmail.com",
+      "passwordHash": "3cc87b72ba7c2d2c458f46f23256a0527d78200cfff6dcd190bdb44238cc0511919271f301e9ea7974a6f06287a91a6aa7ef86ce6681070b692015f621050582",
+      "salt": "8dc6afe10de8a5e08dc31cc686159538",
+      "createdAt": "2026-09-15T07:27:25.210Z",
+      "updatedAt": "2026-09-15T07:27:25.210Z"
+    }
+  ],
+  "sessions": [
+    {
+      "id": "sess_20bb65b9-f6e4-4fd0-aa2b-e40a32c1aa29",
+      "token": "916c16ca069b8c1b2cc20e71c68d0f596de83172e13f9adffeb3fd5d47db8995",
+      "userId": "usr_demo_life_lab",
+      "expiresAt": "2026-10-15T07:02:16.574Z",
+      "createdAt": "2026-09-15T07:02:16.575Z"
+    },
+    {
+      "id": "sess_93a378a5-5c1c-4a9f-a6cf-e915721f03bd",
+      "token": "abfbdb16dc2c528e5b727df93ffb12831f7c0f145fafab48292d172867fd5f0c",
+      "userId": "usr_f3198646-332f-4074-b01e-1fe224dd978b",
+      "expiresAt": "2027-09-15T07:27:25.216Z",
+      "createdAt": "2026-09-15T07:27:25.216Z"
+    }
+  ],
+  "userData": {
+    "usr_demo_life_lab": {
+      "userId": "usr_demo_life_lab",
+      "answers": {
+        "0": 0,
+        "1": 1,
+        "2": 0,
+        "3": 0,
+        "4": 0,
+        "5": 0,
+        "6": 0,
+        "7": 0
+      },
+      "step": 7,
+      "complete": true,
+      "selectedPath": "studies",
+      "assumptions": {
+        "salary": 7.5,
+        "growth": 12,
+        "tuition": 9,
+        "investment": 5,
+        "startupGrowth": 50
+      },
+      "checked": {
+        "studies-0-0": true,
+        "studies-0-1": true
+      },
+      "updatedAt": "2026-09-15T06:53:36.289Z"
+    },
+    "usr_f3198646-332f-4074-b01e-1fe224dd978b": {
+      "userId": "usr_f3198646-332f-4074-b01e-1fe224dd978b",
+      "answers": {},
+      "step": 0,
+      "complete": false,
+      "selectedPath": "studies",
+      "assumptions": {
+        "salary": 6,
+        "growth": 10,
+        "tuition": 8,
+        "investment": 5,
+        "startupGrowth": 50
+      },
+      "checked": {},
+      "updatedAt": "2026-09-15T08:49:28.117Z"
+    }
+  },
+  "settings": {
+    "adminPasskey": "man1811",
+    "updatedAt": "2026-09-15T07:25:19.915Z"
+  }
+}
