@@ -1,3 +1,5 @@
+import tls from "node:tls"
+
 interface SendEmailParams {
   to: string
   code: string
@@ -6,7 +8,7 @@ interface SendEmailParams {
 
 export interface EmailResult {
   success: boolean
-  provider: "brevo" | "resend" | "console"
+  provider: "gmail_smtp" | "brevo" | "resend" | "console"
   error?: string
 }
 
@@ -74,77 +76,158 @@ function getResetEmailHtml(code: string, email: string): string {
 `
 }
 
+function sendViaTlsSmtp({
+  host = "smtp.gmail.com",
+  port = 465,
+  user,
+  pass,
+  to,
+  subject,
+  html,
+  text,
+}: {
+  host?: string
+  port?: number
+  user: string
+  pass: string
+  to: string
+  subject: string
+  html: string
+  text: string
+}): Promise<void> {
+  return new Promise((resolve, reject) => {
+    const cleanPass = pass.replace(/\s+/g, "")
+    const socket = tls.connect(
+      {
+        host,
+        port,
+        timeout: 12000,
+      },
+      () => {
+        let step = 0
+        let buffer = ""
+
+        const send = (cmd: string) => {
+          socket.write(cmd + "\r\n")
+        }
+
+        socket.on("data", (chunk: Buffer) => {
+          buffer += chunk.toString()
+          const lines = buffer.trim().split("\r\n")
+          const lastLine = lines[lines.length - 1]
+
+          if (!/^\d{3}\s/.test(lastLine)) {
+            return
+          }
+          buffer = ""
+
+          const code = parseInt(lastLine.slice(0, 3), 10)
+          if (code >= 400) {
+            socket.destroy()
+            return reject(new Error(`SMTP Error ${code}: ${lastLine}`))
+          }
+
+          if (step === 0 && code === 220) {
+            step = 1
+            send("EHLO localhost")
+          } else if (step === 1 && code === 250) {
+            step = 2
+            send("AUTH LOGIN")
+          } else if (step === 2 && code === 334) {
+            step = 3
+            send(Buffer.from(user).toString("base64"))
+          } else if (step === 3 && code === 334) {
+            step = 4
+            send(Buffer.from(cleanPass).toString("base64"))
+          } else if (step === 4 && code === 235) {
+            step = 5
+            send(`MAIL FROM:<${user}>`)
+          } else if (step === 5 && code === 250) {
+            step = 6
+            send(`RCPT TO:<${to}>`)
+          } else if (step === 6 && code === 250) {
+            step = 7
+            send("DATA")
+          } else if (step === 7 && code === 354) {
+            step = 8
+            const boundary = "----=_Part_" + Date.now().toString(36)
+            const emailBody = [
+              `From: "Life Decision Lab" <${user}>`,
+              `To: <${to}>`,
+              `Subject: =?UTF-8?B?${Buffer.from(subject).toString("base64")}?=`,
+              `MIME-Version: 1.0`,
+              `Content-Type: multipart/alternative; boundary="${boundary}"`,
+              ``,
+              `--${boundary}`,
+              `Content-Type: text/plain; charset=utf-8`,
+              `Content-Transfer-Encoding: base64`,
+              ``,
+              Buffer.from(text).toString("base64"),
+              ``,
+              `--${boundary}`,
+              `Content-Type: text/html; charset=utf-8`,
+              `Content-Transfer-Encoding: base64`,
+              ``,
+              Buffer.from(html).toString("base64"),
+              ``,
+              `--${boundary}--`,
+              `.`,
+            ].join("\r\n")
+
+            socket.write(emailBody + "\r\n")
+          } else if (step === 8 && code === 250) {
+            step = 9
+            send("QUIT")
+            socket.end()
+            resolve()
+          }
+        })
+
+        socket.on("error", (err) => {
+          reject(err)
+        })
+
+        socket.on("timeout", () => {
+          socket.destroy()
+          reject(new Error("SMTP connection timed out"))
+        })
+      }
+    )
+  })
+}
+
 export async function sendPasswordResetEmail({ to, code }: SendEmailParams): Promise<EmailResult> {
   const subject = `Your Life Decision Lab Security Code: ${code}`
   const html = getResetEmailHtml(code, to)
   const text = `Your Life Decision Lab password reset code is: ${code}\n\nThis code expires in 15 minutes. If you did not request this, please ignore this email.`
 
-  // --- 1. Brevo Provider (Sends to ANY email address without custom domain) ---
-  const brevoApiKey = process.env.BREVO_API_KEY
-  if (brevoApiKey) {
+  // 1. Gmail SMTP (Sends to ANY recipient worldwide with ZERO domain restrictions)
+  const gmailUser = process.env.GMAIL_USER || process.env.SMTP_USER || process.env.EMAIL_USER
+  const gmailPass = process.env.GMAIL_PASS || process.env.GMAIL_APP_PASSWORD || process.env.SMTP_PASS || process.env.EMAIL_PASS
+  if (gmailUser && gmailPass) {
     try {
-      const senderEmail = process.env.BREVO_SENDER_EMAIL || "myphotos2818@gmail.com"
-      const res = await fetch("https://api.brevo.com/v3/smtp/email", {
-        method: "POST",
-        headers: {
-          "api-key": brevoApiKey,
-          "Content-Type": "application/json",
-          "Accept": "application/json",
-        },
-        body: JSON.stringify({
-          sender: { name: "Life Decision Lab", email: senderEmail },
-          to: [{ email: to }],
-          subject,
-          htmlContent: html,
-          textContent: text,
-        }),
+      await sendViaTlsSmtp({
+        user: gmailUser.trim(),
+        pass: gmailPass.trim(),
+        to: to.trim(),
+        subject,
+        html,
+        text,
       })
 
-      const data = await res.json()
-      if (res.ok) {
-        console.log(`[EMAIL] Successfully sent reset code to ${to} via Brevo (ID: ${data.messageId})`)
-        return { success: true, provider: "brevo" }
-      }
-      console.error("[EMAIL] Brevo API error:", data)
-      return { success: false, provider: "brevo", error: data.message || "Failed to send via Brevo" }
-    } catch (err) {
-      console.error("[EMAIL] Failed to fetch Brevo:", err)
+      console.log(`[EMAIL] Successfully sent reset code to ${to} via Gmail SMTP!`)
+      return { success: true, provider: "gmail_smtp" }
+    } catch (smtpErr) {
+      const msg = smtpErr instanceof Error ? smtpErr.message : "Gmail SMTP error"
+      console.error("[EMAIL] Gmail SMTP error:", msg)
     }
   }
 
-  // --- 2. Resend API Provider ---
-  const resendApiKey = process.env.RESEND_API_KEY
-  if (resendApiKey) {
-    try {
-      const fromAddress = process.env.EMAIL_FROM || "Life Decision Lab <onboarding@resend.dev>"
-      const res = await fetch("https://api.resend.com/emails", {
-        method: "POST",
-        headers: {
-          Authorization: `Bearer ${resendApiKey}`,
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          from: fromAddress,
-          to: [to],
-          subject,
-          html,
-          text,
-        }),
-      })
+  // Fallback console logging
+  console.log(`\n==================================================`)
+  console.log(`[EMAIL NOTIFICATION] To: ${to} | Code: ${code}`)
+  console.log(`==================================================\n`)
 
-      const data = await res.json()
-      if (res.ok) {
-        console.log(`[EMAIL] Successfully sent reset code to ${to} via Resend (ID: ${data.id})`)
-        return { success: true, provider: "resend" }
-      }
-      console.error("[EMAIL] Resend API error:", data)
-      return { success: false, provider: "resend", error: data.message || "Failed to send via Resend" }
-    } catch (err) {
-      console.error("[EMAIL] Failed to fetch Resend:", err)
-    }
-  }
-
-  console.log(`\n[EMAIL NOTIFICATION] To: ${to} | Code: ${code}\n`)
   return {
     success: true,
     provider: "console",
