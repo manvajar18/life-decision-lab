@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server"
 import { createPasswordResetCode } from "@/lib/db"
+import { sendPasswordResetEmail } from "@/lib/email"
 
 export async function POST(request: Request) {
   try {
@@ -21,21 +22,26 @@ export async function POST(request: Request) {
       )
     }
 
-    console.log(`[AUTH] Password reset code for ${result.email}: ${result.code}`)
+    // Send code to user's real email address
+    const emailResult = await sendPasswordResetEmail({
+      to: result.email,
+      code: result.code,
+    })
 
     return NextResponse.json(
       {
         success: true,
-        message: "Verification code sent successfully. Use this code to set your new password.",
-        code: result.code,
+        message: "A 6-digit verification code has been sent to your email address.",
         email: result.email,
+        emailProvider: emailResult.provider,
       },
       { status: 200 }
     )
   } catch (error) {
+    const message = error instanceof Error ? error.message : "Internal error"
     console.error("Forgot password error:", error)
     return NextResponse.json(
-      { error: "Failed to generate password reset code. Please try again." },
+      { error: `Failed to generate password reset code: ${message}. Please try again.` },
       { status: 500 }
     )
   }
