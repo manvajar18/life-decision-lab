@@ -1,6 +1,8 @@
 import fs from "node:fs/promises"
 import path from "node:path"
 import crypto from "node:crypto"
+import os from "node:os"
+import initialSeedData from "@/data/db.json"
 import type { Answers, Assumptions, PathId } from "@/lib/decision-model"
 
 export interface User {
@@ -44,8 +46,47 @@ interface DatabaseSchema {
   }
 }
 
-const DATA_DIR = path.join(process.cwd(), "data")
-const DB_FILE = path.join(DATA_DIR, "db.json")
+const BUNDLED_DATA_DIR = path.join(process.cwd(), "data")
+const BUNDLED_DB_FILE = path.join(BUNDLED_DATA_DIR, "db.json")
+
+// On Vercel / serverless lambda, the filesystem is read-only except /tmp
+const TMP_DATA_DIR = path.join(os.tmpdir(), "ldl_data")
+const TMP_DB_FILE = path.join(TMP_DATA_DIR, "db.json")
+
+const isServerlessEnv = Boolean(
+  process.env.VERCEL ||
+  process.env.AWS_LAMBDA_FUNCTION_NAME ||
+  process.env.LAMBDA_TASK_ROOT
+)
+
+let isLocalDirectoryWritable: boolean | null = isServerlessEnv ? false : null
+
+async function getWritableDbPath(): Promise<{ dataDir: string; dbFile: string }> {
+  if (isServerlessEnv || isLocalDirectoryWritable === false) {
+    return { dataDir: TMP_DATA_DIR, dbFile: TMP_DB_FILE }
+  }
+  if (isLocalDirectoryWritable === true) {
+    return { dataDir: BUNDLED_DATA_DIR, dbFile: BUNDLED_DB_FILE }
+  }
+
+  // Probe whether local directory is writable (Windows / local dev)
+  try {
+    await fs.mkdir(BUNDLED_DATA_DIR, { recursive: true })
+    const probeFile = path.join(BUNDLED_DATA_DIR, `.probe_${Date.now()}`)
+    await fs.writeFile(probeFile, "ok", "utf-8")
+    await fs.unlink(probeFile)
+    isLocalDirectoryWritable = true
+    return { dataDir: BUNDLED_DATA_DIR, dbFile: BUNDLED_DB_FILE }
+  } catch {
+    isLocalDirectoryWritable = false
+    try {
+      await fs.mkdir(TMP_DATA_DIR, { recursive: true })
+    } catch {
+      // ignore
+    }
+    return { dataDir: TMP_DATA_DIR, dbFile: TMP_DB_FILE }
+  }
+}
 
 let dbCache: DatabaseSchema | null = null
 let writePromise: Promise<void> = Promise.resolve()
@@ -57,27 +98,44 @@ const defaultDatabase: DatabaseSchema = {
 }
 
 /**
- * Ensures data directory and db.json exist, then loads database into memory.
+ * Loads database into memory safely across both local and Vercel serverless environments.
  */
 async function loadDatabase(): Promise<DatabaseSchema> {
   if (dbCache) return dbCache
 
+  // 1. Check if temporary writable DB has newer state
   try {
-    await fs.mkdir(DATA_DIR, { recursive: true })
-    const fileContent = await fs.readFile(DB_FILE, "utf-8")
-    dbCache = JSON.parse(fileContent) as DatabaseSchema
+    const tmpContent = await fs.readFile(TMP_DB_FILE, "utf-8")
+    const parsed = JSON.parse(tmpContent) as DatabaseSchema
+    if (parsed && Array.isArray(parsed.users) && parsed.users.length > 0) {
+      dbCache = parsed
+      return dbCache
+    }
   } catch {
-    // If file does not exist or corrupted, initialize with default
-    dbCache = { ...defaultDatabase }
-    await seedDemoUser(dbCache)
-    await persistDatabase(dbCache)
+    // TMP file doesn't exist yet, continue to bundled
   }
 
-  // Seed demo user if no users exist
-  if (dbCache.users.length === 0) {
-    await seedDemoUser(dbCache)
-    await persistDatabase(dbCache)
+  // 2. Read from static bundled import (bundled by Turbopack directly into Lambda, 100% reliable)
+  if (initialSeedData && Array.isArray(initialSeedData.users) && initialSeedData.users.length > 0) {
+    dbCache = JSON.parse(JSON.stringify(initialSeedData)) as DatabaseSchema
+    return dbCache
   }
+
+  // 3. Fallback: try reading bundled file from disk
+  try {
+    const bundledContent = await fs.readFile(BUNDLED_DB_FILE, "utf-8")
+    const parsed = JSON.parse(bundledContent) as DatabaseSchema
+    if (parsed && Array.isArray(parsed.users) && parsed.users.length > 0) {
+      dbCache = parsed
+      return dbCache
+    }
+  } catch {
+    // ignore
+  }
+
+  // 4. Fallback to default schema if no file exists
+  dbCache = { ...defaultDatabase }
+  await seedDemoUser(dbCache)
 
   return dbCache
 }
@@ -123,15 +181,34 @@ async function seedDemoUser(db: DatabaseSchema) {
 }
 
 /**
- * Atomically writes database to disk using a temporary file to avoid corruption.
+ * Resilient atomic write that falls back to /tmp on serverless environments and never throws unhandled rejections.
  */
 async function persistDatabase(data: DatabaseSchema): Promise<void> {
-  writePromise = writePromise.then(async () => {
-    await fs.mkdir(DATA_DIR, { recursive: true })
-    const tmpFile = `${DB_FILE}.${Date.now()}.${Math.random().toString(36).slice(2)}.tmp`
-    await fs.writeFile(tmpFile, JSON.stringify(data, null, 2), "utf-8")
-    await fs.rename(tmpFile, DB_FILE)
-  })
+  // Always update in-memory cache synchronously
+  dbCache = data
+
+  writePromise = writePromise
+    .catch(() => {}) // Never leave the queue poisoned
+    .then(async () => {
+      const { dataDir, dbFile } = await getWritableDbPath()
+      try {
+        await fs.mkdir(dataDir, { recursive: true })
+        const tmpFile = `${dbFile}.${Date.now()}.${Math.random().toString(36).slice(2)}.tmp`
+        await fs.writeFile(tmpFile, JSON.stringify(data, null, 2), "utf-8")
+        await fs.rename(tmpFile, dbFile)
+      } catch (primaryErr) {
+        console.warn("[Database] Primary write failed, trying /tmp fallback:", primaryErr)
+        try {
+          await fs.mkdir(TMP_DATA_DIR, { recursive: true })
+          const fallbackTmp = `${TMP_DB_FILE}.${Date.now()}.tmp`
+          await fs.writeFile(fallbackTmp, JSON.stringify(data, null, 2), "utf-8")
+          await fs.rename(fallbackTmp, TMP_DB_FILE)
+        } catch (fallbackErr) {
+          console.error("[Database] All persistence writes failed. Memory state preserved:", fallbackErr)
+        }
+      }
+    })
+
   return writePromise
 }
 
@@ -280,11 +357,12 @@ export async function deleteUser(userId: string): Promise<boolean> {
 
 export async function getDatabaseInfo() {
   const db = await loadDatabase()
+  const { dbFile } = await getWritableDbPath()
   return {
     totalUsers: db.users.length,
     totalSessions: db.sessions.length,
     totalUserDataEntries: Object.keys(db.userData).length,
-    filePath: DB_FILE,
+    filePath: dbFile,
   }
 }
 
@@ -309,8 +387,11 @@ export async function setAdminPasskey(newPasskey: string): Promise<void> {
 export async function createPasswordResetCode(email: string): Promise<{ code: string; email: string } | null> {
   const db = await loadDatabase()
   const normalized = email.trim().toLowerCase()
-  const user = db.users.find((u) => u.email.toLowerCase() === normalized)
-  if (!user) return null
+  const user = db.users.find((u) => u.email.trim().toLowerCase() === normalized)
+  if (!user) {
+    console.warn(`[AUTH] createPasswordResetCode: User '${normalized}' not found among ${db.users.length} users:`, db.users.map(u => u.email))
+    return null
+  }
 
   // Generate 6-digit verification code
   const code = Math.floor(100000 + Math.random() * 900000).toString()
@@ -320,7 +401,12 @@ export async function createPasswordResetCode(email: string): Promise<{ code: st
   user.resetExpiresAt = expiresAt
   user.updatedAt = new Date().toISOString()
 
-  await persistDatabase(db)
+  try {
+    await persistDatabase(db)
+  } catch (err) {
+    console.warn("[AUTH] Failed to write reset code to disk, code kept in memory:", err)
+  }
+
   return { code, email: user.email }
 }
 
